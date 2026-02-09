@@ -784,7 +784,20 @@ const App: React.FC = () => {
     const userMsg: Message = { id: Date.now().toString(), sender: 'USER', text, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
-
+    // 新增：英文关键词前置拦截，确保 "apartment" 或 "rent" 能直接启动流程
+    if (discoveryState === 'WELCOME' && 
+       (text.toLowerCase().includes('rent') || text.toLowerCase().includes('apartment'))) {
+      setDiscoveryState('PREFERENCES');
+      const coreResponse: Message = {
+        id: Date.now().toString(),
+        sender: AgentType.CITY_CORE,
+        text: "[Neo-Chicago Core]: I see you're looking for a place. To narrow down your search, what is more important to you?\n1. Safety (Path analysis via Safety Sentinel)\n2. Lifestyle (District vitality via Merchant Pulse)",
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, coreResponse]);
+      setIsTyping(false);
+      return;
+    }
     try {
       const routerResult = await callDifyApi(text, DIFY_ROUTER_API_KEY, DIFY_ROUTER_API_URL);
       let parsedIntent: DifyIntentResult | null = null;
