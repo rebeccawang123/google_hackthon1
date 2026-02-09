@@ -267,7 +267,7 @@ const StreetViewModal: React.FC<{
   targetLocation: { lat: number; lng: number }; // 目标房屋坐标
 }> = ({ isOpen, onClose, targetLocation }) => {
   const streetViewRef = useRef<HTMLDivElement>(null);
-  const [statusMsg, setStatusMsg] = useState("正在连接 Google Earth 卫星链路...");
+  const [statusMsg, setStatusMsg] = useState("Connecting to Google Earth satellite link...");
   const [panoDate, setPanoDate] = useState<string | null>(null);
 
   useEffect(() => {
@@ -814,7 +814,7 @@ const App: React.FC = () => {
       return;
     }
     try {
-      const routerResult = await callDifyApi(text, VITE_DIFY_ROUTER_API_KEY, VITE_DIFY_ROUTER_API_URL);
+      const routerResult = await callDifyApi(text, DIFY_ROUTER_API_KEY, DIFY_ROUTER_API_URL);
       let parsedIntent: DifyIntentResult | null = null;
       if (routerResult && routerResult.answer) {
         try {
@@ -840,7 +840,7 @@ const App: React.FC = () => {
           const aiMsg: Message = {
             id: Date.now().toString(),
             sender: AgentType.SPATIAL_ARCHITECT,
-            text: `[Spatial Architect]: 已识别空间意图 (Confidence: ${parsedIntent.confidence})。\n\n已调取 Google GeoAPI 数据，锁定了 "${address}" 区域。\n已在全息地图上为你生成了 2 个关键锚点，请点击查看详细数据。`,
+            text: `[Spatial Architect]: [Spatial Architect]: Spatial intent recognized (Confidence: ${parsedIntent.confidence}).Google GeoAPI data retrieved. Area "${address}" has been locked. 2 key anchors have been generated on the holographic map. Please click to view detailed data.`,
             timestamp: new Date(),
             metadata: { grounding: searchPoints }
           };
@@ -872,7 +872,7 @@ const App: React.FC = () => {
 
       // 商户相关问题 → 走你提供的 Dify Merchant Agent（streaming）
       if (predictedAgent === AgentType.MERCHANT_PULSE) {
-        const merchantAnswer = await callDifyMerchantStream(text, VITE_DIFY_MERCHANT_API_KEY, VITE_DIFY_MERCHANT_API_URL);
+        const merchantAnswer = await callDifyMerchantStream(text, DIFY_MERCHANT_API_KEY, DIFY_MERCHANT_API_URL);
         const displayText = merchantAnswer.trim() || "Merchant Pulse connection error. Please try again later.";
         const newMsg: Message = {
           id: Date.now().toString(),
@@ -931,7 +931,7 @@ const App: React.FC = () => {
     const query = `获取点位详情: ${JSON.stringify(pointInfo)}`;
     setIsTyping(true);
     try {
-      const difyResult = await callDifyWorkflowApi(query, VITE_DIFY_WORKFLOW_API_KEY, VITE_DIFY_WORKFLOW_API_URL);
+      const difyResult = await callDifyWorkflowApi(query, DIFY_WORKFLOW_API_KEY, DIFY_WORKFLOW_API_URL);
       const aiMsg: Message = {
         id: Date.now().toString(),
         sender: AgentType.SPATIAL_ARCHITECT,
