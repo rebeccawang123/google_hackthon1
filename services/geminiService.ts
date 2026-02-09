@@ -101,8 +101,14 @@ const ai = new GoogleGenAI(apiKey);
     const response: GenerateContentResponse = await withRetry(() => 
       ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Analyze this prompt and return ONLY the most relevant Agent ID: SAFETY_SENTINEL, SPATIAL_ARCHITECT, REPUTATION_STEWARD, MERCHANT_PULSE, TENANT_CONCIERGE, INFRA_JANITOR, SETTLEMENT_MEDIATOR. 
-        Prompt: "${prompt}"`,
+        contents: // 建议将 contents 修改为包含英文示例的指令
+        contents: `
+          You are an intent classifier for Atlas Axis. 
+          Analyze the user query: "${prompt}".
+          Return ONLY the ID. 
+          Example: "find apartment" -> SPATIAL_ARCHITECT
+          Example: "is it safe?" -> SAFETY_SENTINEL
+        `,
         config: {
           temperature: 0,
         }
