@@ -82,3 +82,30 @@ export interface SearchResultPoint {
   nearbyFacilities?: string[];
 }
 
+export interface ResolutionResult {
+  id: string;
+  address: string;
+  privateKey: string;
+  email: string;
+  description: string;
+  timestamp: string;
+  network: string;
+  // Renamed from tokenId to agentId
+  agentId?: number;
+  metadata?: {
+    derivationPath: string;
+    accountIndex: number;
+    persona?: string;
+    suggestedRole?: string;
+    registrationTx?: string;
+    agentId?: number;
+    // Added field to store the full AI-generated metadata profile
+    registrationMetadata?: any;
+  };
+}
+
+export interface ApiError {
+  message: string;
+  code?: string;
+}
+
