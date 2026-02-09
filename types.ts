@@ -1,4 +1,3 @@
-
 export type UserRole = 'Landlord' | 'Merchant' | 'Tenant' | 'Guest';
 
 export interface User {
@@ -82,3 +81,4 @@ export interface SearchResultPoint {
   footTraffic?: number;
   nearbyFacilities?: string[];
 }
+

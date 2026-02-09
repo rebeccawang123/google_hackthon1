@@ -25,6 +25,9 @@ const DIFY_ROUTER_API_KEY = "";
 const DIFY_WORKFLOW_API_URL = "https://api.dify.ai/v1/chat-messages"; 
 const DIFY_WORKFLOW_API_KEY = ""; 
 const GOOGLE_MAPS_API_KEY = ""; 
+// 商户 Agent 专用 Dify 应用（你提供的 Key）
+const DIFY_MERCHANT_API_URL = "https://api.dify.ai/v1/chat-messages";
+const DIFY_MERCHANT_API_KEY = "";
 
 interface DifyIntentResult {
   intent: string;
@@ -33,6 +36,7 @@ interface DifyIntentResult {
 }
 
 // --- API 调用函数 ---
+// 通用 Dify Chat（blocking 模式）
 const callDifyApi = async (query: string, apiKey: string, url: string) => {
   try {
     const response = await fetch(url, {
@@ -53,6 +57,66 @@ const callDifyApi = async (query: string, apiKey: string, url: string) => {
   } catch (e) {
     console.error("Dify Fetch Error:", e);
     return null;
+  }
+};
+
+// 商户 Agent 使用的 Dify（streaming SSE，按 agent_message.answer 拼接）
+const callDifyMerchantStream = async (query: string, apiKey: string, url: string): Promise<string> => {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        inputs: {},
+        query,
+        response_mode: "streaming",
+        user: "twin-city-user",
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error("[Dify Merchant] Error", response.status, errBody);
+      return "";
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return "";
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullAnswer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr || jsonStr === "[DONE]") continue;
+        try {
+          const obj = JSON.parse(jsonStr);
+          if (obj.event === "agent_message" && typeof obj.answer === "string") {
+            fullAnswer += obj.answer;
+          }
+        } catch {
+          // 忽略单行解析错误，继续读后续 chunk
+        }
+      }
+    }
+
+    return fullAnswer;
+  } catch (e) {
+    console.error("[Dify Merchant] Fetch Error:", e);
+    return "";
   }
 };
 
@@ -558,8 +622,26 @@ const App: React.FC = () => {
         return;
       }
       
+      // 默认 Agent 逻辑：先用 Gemini 判断最相关的 Agent
       const predictedAgent = await detectAgentIntent(text);
       setActiveAgent(predictedAgent);
+
+      // 商户相关问题 → 走你提供的 Dify Merchant Agent（streaming）
+      if (predictedAgent === AgentType.MERCHANT_PULSE) {
+        const merchantAnswer = await callDifyMerchantStream(text, DIFY_MERCHANT_API_KEY, DIFY_MERCHANT_API_URL);
+        const displayText = merchantAnswer.trim() || "Merchant Pulse 连接异常，请稍后重试。";
+        const newMsg: Message = {
+          id: Date.now().toString(),
+          sender: AgentType.MERCHANT_PULSE,
+          text: displayText,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, newMsg]);
+        setIsTyping(false);
+        return;
+      }
+
+      // 其他 Agent 仍然走 Gemini 编排
       const { text: fullResponse, grounding } = await generateOrchestratedResponse(text);
       if (grounding?.length > 0) setGroundedPoints(prev => [...prev, ...grounding]);
       const cleanResponse = fullResponse.replace(/<internal_thought>[\s\S]*?<\/internal_thought>/g, '').trim();
