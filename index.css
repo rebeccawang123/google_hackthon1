@@ -1,0 +1,33 @@
+/* Light Point Animations for TwinCityMap */
+
+@keyframes breathing {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.animate-breathing {
+  animation: breathing 2s ease-in-out infinite;
+}
+
+/* Enhanced ping animation with custom timing */
+.animate-ping-custom {
+  animation: ping-custom 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping-custom {
+  75%, 100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* Particle float animation */
+@keyframes particle-float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 1; }
+  50% { transform: translateY(-10px) scale(1.2); opacity: 0.6; }
+}
+
+/* Custom ping animation timing function */
+.animate-ping {
+  animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+}
