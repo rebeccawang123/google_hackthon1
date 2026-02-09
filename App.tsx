@@ -3,16 +3,18 @@ import { Canvas } from '@react-three/fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import { LumaSplatsThree } from '@lumaai/luma-web';
 import * as THREE from 'three';
-import { 
-  Activity, Shield, Layers, Users, Zap, LayoutDashboard, Share2, Database, 
-  LogOut, Mail, ShieldCheck, ChevronRight, ChevronDown, Terminal, Cpu, 
-  MessageSquare, Home, Settings, Globe, Lock, Box, Fingerprint, BarChart3, 
-  Network, Radio, Wrench, Handshake, UserCheck, Map as MapIcon, X, 
-  CreditCard, Wallet, MousePointer2, Settings2, Save, Eye 
+import {
+  Activity, Shield, Layers, Users, Zap, LayoutDashboard, Share2, Database,
+  LogOut, Mail, ShieldCheck, ChevronRight, ChevronDown, Terminal, Cpu,
+  MessageSquare, Home, Settings, Globe, Lock, Box, Fingerprint, BarChart3,
+  Network, Radio, Wrench, Handshake, UserCheck, Map as MapIcon, X,
+  CreditCard, Wallet, MousePointer2, Settings2, Save, Eye, Send, Star
 } from 'lucide-react';
 
 // 假设这些类型和组件在你的本地文件中已存在
 import { AgentType, Message, UserRole, User } from './types';
+import { getUsdcBalance, getAddressBalance, getReputationByEmail, sendEthTransaction, sendUsdcTransaction, rateAgent } from './services/blockchainService';
+import { db } from './services/dbService';
 import { AGENTS, MOCK_BUILDINGS, CHICAGO_LOOP_CENTER } from './constants';
 import ChatInterface from './components/ChatInterface';
 import TwinCityMap from './components/TwinCityMap';
@@ -474,7 +476,155 @@ const App: React.FC = () => {
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [fleetStream, setFleetStream] = useState<any[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  
+  const [usdcBalance, setUsdcBalance] = useState<string>('0');
+  const [ethBalance, setEthBalance] = useState<string>('0');
+  const [userAddress, setUserAddress] = useState<string>('');
+  const [agentId, setAgentId] = useState<number | null>(null);
+  const [creditScore, setCreditScore] = useState<number>(0);
+
+  // 转账弹窗状态
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferType, setTransferType] = useState<'ETH' | 'USDC'>('ETH');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferRecipient, setTransferRecipient] = useState('');
+  const [allUsers, setAllUsers] = useState<{ email: string; address: string; agentId?: number }[]>([]);
+  const [isTransferring, setIsTransferring] = useState(false);
+
+  // Feedback 弹窗状态
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState('');
+  const [feedbackScore, setFeedbackScore] = useState(50);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  // Fetch ETH/USDC balance, address, agentId and credit score when profile modal is opened
+  useEffect(() => {
+    if (isProfileModalOpen && user.email) {
+      const fetchUserBlockchainInfo = async () => {
+        try {
+          const identity = await db.findByEmail(user.email);
+          if (identity && identity.address) {
+            setUserAddress(identity.address);
+            setAgentId(identity.agentId || null);
+            const [usdcBal, ethBal, reputation] = await Promise.all([
+              getUsdcBalance(identity.address),
+              getAddressBalance(identity.address),
+              getReputationByEmail(user.email)
+            ]);
+            setUsdcBalance(usdcBal);
+            setEthBalance(ethBal);
+            setCreditScore(reputation.score || 0);
+          }
+        } catch (error) {
+          console.error('Failed to fetch user blockchain info:', error);
+        }
+      };
+      fetchUserBlockchainInfo();
+    }
+  }, [isProfileModalOpen, user.email]);
+
+  // Fetch all users when transfer or feedback modal is opened
+  useEffect(() => {
+    if (isTransferModalOpen || isFeedbackModalOpen) {
+      const fetchAllUsers = async () => {
+        try {
+          const identities = await db.getAllIdentities();
+          const users = identities
+            .filter(i => i.email && i.address)
+            .map(i => ({ email: i.email, address: i.address, agentId: i.agentId }));
+          setAllUsers(users);
+        } catch (error) {
+          console.error('Failed to fetch users:', error);
+        }
+      };
+      fetchAllUsers();
+    }
+  }, [isTransferModalOpen, isFeedbackModalOpen]);
+
+  // Handle transfer
+  const handleTransfer = async () => {
+    if (!transferRecipient || !transferAmount) return;
+
+    setIsTransferring(true);
+    try {
+      const recipientUser = allUsers.find(u => u.email === transferRecipient);
+      if (!recipientUser) {
+        alert('Recipient not found');
+        return;
+      }
+
+      const currentUserIdentity = await db.findByEmail(user.email);
+      if (!currentUserIdentity || !currentUserIdentity.privateKey) {
+        alert('Current user identity not found');
+        return;
+      }
+
+      let txHash = '';
+      if (transferType === 'ETH') {
+        txHash = await sendEthTransaction(
+          currentUserIdentity.privateKey,
+          recipientUser.address,
+          transferAmount
+        );
+      } else {
+        txHash = await sendUsdcTransaction(
+          currentUserIdentity.privateKey,
+          recipientUser.address,
+          transferAmount
+        );
+      }
+
+      alert(`Transfer successful! Transaction hash: ${txHash}`);
+      setIsTransferModalOpen(false);
+      setTransferAmount('');
+      setTransferRecipient('');
+    } catch (error: any) {
+      console.error('Transfer failed:', error);
+      alert(`Transfer failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  // Handle feedback submission
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackTarget) return;
+
+    setIsSubmittingFeedback(true);
+    try {
+      const targetUser = allUsers.find(u => u.email === feedbackTarget);
+      if (!targetUser) {
+        alert('Target user not found');
+        return;
+      }
+
+      const currentUserIdentity = await db.findByEmail(user.email);
+      if (!currentUserIdentity || !currentUserIdentity.privateKey) {
+        alert('Current user identity not found');
+        return;
+      }
+
+      const txHash = await rateAgent(
+        currentUserIdentity.privateKey,
+        targetUser.address,
+        feedbackScore,
+        feedbackComment,
+        targetUser.agentId
+      );
+
+      alert(`Feedback submitted successfully! Transaction hash: ${txHash}`);
+      setIsFeedbackModalOpen(false);
+      setFeedbackTarget('');
+      setFeedbackScore(50);
+      setFeedbackComment('');
+    } catch (error: any) {
+      console.error('Feedback submission failed:', error);
+      alert(`Feedback submission failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
   // 弹窗状态
   const [selectedPoint, setSelectedPoint] = useState<any>(null);
   const [isPointModalOpen, setIsPointModalOpen] = useState(false);
@@ -772,6 +922,8 @@ const App: React.FC = () => {
           <button onClick={() => setActiveTab('HOME')} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activeTab === 'HOME' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}><Home size={22} /></button>
           <button onClick={() => setActiveTab('SYSTEM')} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activeTab === 'SYSTEM' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}><Cpu size={22} /></button>
           <button onClick={() => setActiveTab('COMMUNITY')} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activeTab === 'COMMUNITY' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}><Network size={22} /></button>
+          <button onClick={() => setIsTransferModalOpen(true)} className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all text-white/20 hover:text-white hover:bg-white/5" title="Transfer"><Send size={22} /></button>
+          <button onClick={() => setIsFeedbackModalOpen(true)} className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all text-white/20 hover:text-white hover:bg-white/5" title="Feedback"><Star size={22} /></button>
         </div>
         <div className="mt-auto flex flex-col gap-6 items-center">
             <button onClick={() => setIsProfileModalOpen(true)} className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-white/10 hover:border-white/50 transition-all"><img src={user.avatar} className="w-full h-full object-cover" /></button>
@@ -815,21 +967,237 @@ const App: React.FC = () => {
                     <img src={user.avatar} className="w-full h-full object-cover" />
                   </div>
                   <h2 className="text-2xl font-bold mb-2">{user.name}</h2>
+                  <div className="bg-white/5 px-4 py-2 rounded-lg border border-white/5 mb-2">
+                     <p className="font-mono text-blue-400 text-xs break-all">{user.email}</p>
+                  </div>
                   <div className="bg-white/5 px-4 py-2 rounded-lg border border-white/5 mb-8">
-                     <p className="font-mono text-blue-400 text-xs break-all">{user.did}</p>
+                     <p className="font-mono text-white/50 text-xs break-all">{user.did}</p>
+                  </div>
+                  <div className="bg-white/5 p-4 rounded-2xl border border-white/5 w-full mb-4">
+                      <span className="text-xs text-white/40 uppercase block mb-1">Address</span>
+                      <a
+                        href={`https://sepolia.basescan.org/address/${userAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-blue-400 break-all hover:text-blue-300 hover:underline transition-colors"
+                      >
+                        {userAddress || '-'}
+                      </a>
                   </div>
                   <div className="grid grid-cols-2 gap-4 w-full mb-8">
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                           <span className="text-xs text-white/40 uppercase block mb-1">Credit Score</span>
-                          <span className="text-2xl font-bold text-emerald-400">{user.eigenCreditScore}</span>
+                          <span className="text-2xl font-bold text-emerald-400">{creditScore}</span>
                       </div>
                       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                          <span className="text-xs text-white/40 uppercase block mb-1">Stake</span>
-                          <span className="text-xl font-bold text-purple-400">{user.slashableValue}</span>
+                          <span className="text-xs text-white/40 uppercase block mb-1">Agent ID</span>
+                          {agentId ? (
+                            <a
+                              href={`https://8004agents.ai/base-sepolia/agent/${agentId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xl font-bold text-purple-400 hover:text-purple-300 hover:underline transition-colors"
+                            >
+                              {agentId}
+                            </a>
+                          ) : (
+                            <span className="text-xl font-bold text-purple-400">-</span>
+                          )}
+                      </div>
+                      <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                          <span className="text-xs text-white/40 uppercase block mb-1">ETH Balance</span>
+                          <span className="text-xl font-bold text-orange-400">{Number(ethBalance).toFixed(4)} ETH</span>
+                      </div>
+                      <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                          <span className="text-xs text-white/40 uppercase block mb-1">USDC Balance</span>
+                          <span className="text-xl font-bold text-blue-400">{Number(usdcBalance).toFixed(2)} USDC</span>
                       </div>
                   </div>
                   <button onClick={handleLogout} className="px-6 py-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-2xl w-full font-bold transition-colors flex items-center justify-center gap-2">
                       <LogOut size={18} /> Disconnect Neural Link
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Transfer Modal */}
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+           <div className="glass-panel border border-white/10 p-8 rounded-[2rem] text-white relative max-w-md w-full shadow-2xl">
+              <button onClick={() => setIsTransferModalOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+              <div className="flex flex-col">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center border border-emerald-500/30">
+                      <Send size={20} className="text-emerald-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">Transfer</h2>
+                      <p className="text-xs text-white/40">Send ETH or USDC to another user</p>
+                    </div>
+                  </div>
+
+                  {/* Transfer Type Selection */}
+                  <div className="flex gap-2 mb-6">
+                    <button
+                      onClick={() => setTransferType('ETH')}
+                      className={`flex-1 py-3 px-4 rounded-xl font-bold transition-all ${transferType === 'ETH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
+                    >
+                      ETH
+                    </button>
+                    <button
+                      onClick={() => setTransferType('USDC')}
+                      className={`flex-1 py-3 px-4 rounded-xl font-bold transition-all ${transferType === 'USDC' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
+                    >
+                      USDC
+                    </button>
+                  </div>
+
+                  {/* Recipient Selection */}
+                  <div className="mb-4">
+                    <label className="text-xs text-white/40 uppercase block mb-2">Recipient Email</label>
+                    <select
+                      value={transferRecipient}
+                      onChange={(e) => setTransferRecipient(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 transition-colors appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem center' }}
+                    >
+                      <option value="" className="bg-gray-900">Select recipient...</option>
+                      {allUsers.filter(u => u.email !== user.email).map((u) => (
+                        <option key={u.email} value={u.email} className="bg-gray-900">{u.email}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Amount Input */}
+                  <div className="mb-6">
+                    <label className="text-xs text-white/40 uppercase block mb-2">Amount ({transferType})</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={transferAmount}
+                        onChange={(e) => setTransferAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 text-sm">{transferType}</span>
+                    </div>
+                  </div>
+
+                  {/* Transfer Button */}
+                  <button
+                    onClick={handleTransfer}
+                    disabled={!transferRecipient || !transferAmount || isTransferring}
+                    className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                      !transferRecipient || !transferAmount || isTransferring
+                        ? 'bg-white/5 text-white/40 cursor-not-allowed'
+                        : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
+                    }`}
+                  >
+                    {isTransferring ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={18} />
+                        Send {transferType}
+                      </>
+                    )}
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
+      {isFeedbackModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+           <div className="glass-panel border border-white/10 p-8 rounded-[2rem] text-white relative max-w-md w-full shadow-2xl">
+              <button onClick={() => setIsFeedbackModalOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+              <div className="flex flex-col">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-yellow-500/20 rounded-xl flex items-center justify-center border border-yellow-500/30">
+                      <Star size={20} className="text-yellow-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">Feedback</h2>
+                      <p className="text-xs text-white/40">Rate an agent on the network</p>
+                    </div>
+                  </div>
+
+                  {/* Target Selection */}
+                  <div className="mb-6">
+                    <label className="text-xs text-white/40 uppercase block mb-2">Target Agent (Email)</label>
+                    <select
+                      value={feedbackTarget}
+                      onChange={(e) => setFeedbackTarget(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50 transition-colors appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem center' }}
+                    >
+                      <option value="" className="bg-gray-900">Select target agent...</option>
+                      {allUsers.filter(u => u.email !== user.email).map((u) => (
+                        <option key={u.email} value={u.email} className="bg-gray-900">{u.email}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Score Input */}
+                  <div className="mb-6">
+                    <label className="text-xs text-white/40 uppercase block mb-2">Score (0-100)</label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={feedbackScore}
+                        onChange={(e) => setFeedbackScore(Number(e.target.value))}
+                        className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-yellow-400"
+                      />
+                      <span className="text-xl font-bold text-yellow-400 w-12 text-right">{feedbackScore}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-white/30 mt-1">
+                      <span>Poor</span>
+                      <span>Excellent</span>
+                    </div>
+                  </div>
+
+                  {/* Comment Input */}
+                  <div className="mb-6">
+                    <label className="text-xs text-white/40 uppercase block mb-2">Comment (Optional)</label>
+                    <textarea
+                      value={feedbackComment}
+                      onChange={(e) => setFeedbackComment(e.target.value)}
+                      placeholder="Enter your feedback..."
+                      rows={3}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-yellow-500/50 transition-colors resize-none"
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    onClick={handleFeedbackSubmit}
+                    disabled={!feedbackTarget || isSubmittingFeedback}
+                    className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                      !feedbackTarget || isSubmittingFeedback
+                        ? 'bg-white/5 text-white/40 cursor-not-allowed'
+                        : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30'
+                    }`}
+                  >
+                    {isSubmittingFeedback ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-yellow-400/30 border-t-yellow-400 rounded-full animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <Star size={18} />
+                        Submit Feedback
+                      </>
+                    )}
                   </button>
               </div>
            </div>
